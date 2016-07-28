@@ -4,9 +4,12 @@ import input_data
 import io_data
 
 """
+2GB Memory : bad_alloc.
+4GB Memory : Okay.
+
 """
 
-VERSION = "rmsprop0.001.0.9.dropout0.7.L3.3.v0.3"
+VERSION = "v1.0"
 
 initializer = tf.contrib.layers.xavier_initializer()
 
@@ -40,12 +43,13 @@ def output_layer(X, num_input, num_output, dropout_rate):
 def conv_layer(X, shape, strides = [1, 1, 1, 1]):
     global conv_layer_cnt
     conv_layer_cnt += 1
-
     W = tf.get_variable("Conv_W" + str(conv_layer_cnt), shape = shape, initializer=initializer)
-    conv_L =  tf.nn.relu(tf.nn.conv2d(X, W, strides=strides, padding="SAME"))
-    return conv_L
+    return tf.nn.conv2d(X, W, strides=strides, padding="SAME")
 
-def pooling(X, ksize, strides):
+def relu_layer(X):
+    return tf.nn.relu(X)
+
+def pooling_layer(X, ksize, strides):
     return tf.nn.max_pool(X, ksize=ksize, strides=strides, padding="SAME")
 
 def make_model(X, dropout_rate):
@@ -58,24 +62,50 @@ def make_model(X, dropout_rate):
     conv_layer_cnt = 0
 
     L1 = conv_layer(conv_X, shape=[3, 3, 1, 32], strides=[1, 1, 1, 1])  # [?, 28, 28, 32]
-    L1p = pooling(L1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1])      # [?, 14, 14, 32]
+    L1R = relu_layer(L1)
+    L2 = conv_layer(L1R, shape=[3, 3, 32, 32], strides=[1, 1, 1, 1])  # [?, 28, 28, 32]
+    L2R = relu_layer(L2)
+    L3 = conv_layer(L2R, shape=[3, 3, 32, 32], strides=[1, 1, 1, 1])  # [?, 28, 28, 32]
+    L3S = tf.add(L3, L1)
+    L3R = relu_layer(L3S)
 
-    L2 = conv_layer(L1p, shape=[3, 3, 32, 64], strides=[1, 1, 1, 1])  # [?, 14, 14, 64]
-    L2p = pooling(L2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1])  # [?, 7, 7, 64]
+    L3P = pooling_layer(L3R, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1])  # [?, 14, 14, 32]
 
-    L3 = conv_layer(L2p, shape=[3, 3, 64, 128], strides=[1, 1, 1, 1])  # [?, 7, 7, 128]
-    L3p = pooling(L3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1])  # [?, 4, 4, 128]
+    L4 = conv_layer(L3P, shape=[3, 3, 32, 64], strides=[1, 1, 1, 1])  # [?, 14, 14, 64]
+    L4R = relu_layer(L4)
+    L5 = conv_layer(L4R, shape=[3, 3, 64, 64], strides=[1, 1, 1, 1])  # [?, 14, 14, 64]
+    L5R = relu_layer(L5)
+    L6 = conv_layer(L5R, shape=[3, 3, 64, 64], strides=[1, 1, 1, 1])  # [?, 14, 14, 64]
+    L6S = tf.add(L6, L4)
+    L6R = relu_layer(L6S)
 
-    lastL = L3p
+    L6P = pooling_layer(L6R, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1])  # [?, 7, 7, 64]
+
+    L7 = conv_layer(L6P, shape=[3, 3, 64, 128], strides=[1, 1, 1, 1])   # [?, 7, 7, 128]
+    L7R = relu_layer(L7)
+    L8 = conv_layer(L7R, shape=[3, 3, 128, 128], strides=[1, 1, 1, 1])  # [?, 7, 7, 128]
+    L8R = relu_layer(L8)
+    L9 = conv_layer(L8R, shape=[3, 3, 128, 128], strides=[1, 1, 1, 1])  # [?, 7, 7, 128]
+    L9S = tf.add(L9, L7)
+    L9R = relu_layer(L9)
+
+    L9P = pooling_layer(L9R, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1])  # [?, 4, 4, 128]
+
+    last_conv_L = L9P
 
     # Construct Fully Connected Layers
-    fc_X = tf.reshape(lastL, shape=[-1, 4 * 4 * 128])
+    fc_X = tf.reshape(last_conv_L, shape=[-1, 4 * 4 * 128])
 
-    fc_L = input_layer(fc_X, 4 * 4 * 128, 625, dropout_rate)
-    fc_L = hidden_layer(fc_L, 625, 625, dropout_rate)
-    fc_L = output_layer(fc_L, 625, 10, dropout_rate)
+    fc_L1 = input_layer(fc_X, 4 * 4 * 128, 625, dropout_rate)
+    fc_L2 = hidden_layer(fc_L1, 625, 625, dropout_rate)
+    fc_L3 = hidden_layer(fc_L2, 625, 625, dropout_rate)
+    fc_L4 = hidden_layer(fc_L3, 625, 625, dropout_rate)
+    fc_L4S = tf.add(fc_L4, fc_L1)
+    fc_L5 = output_layer(fc_L4S, 625, 10, dropout_rate)
 
-    return fc_L
+    last_fc_L = fc_L5
+
+    return last_fc_L
 
 mnist = input_data.read_data_sets("MNIST_data/", one_hot = True)
 """
@@ -176,7 +206,7 @@ with tf.Session() as sess:
         Training and Testing Model
     """
     DISPLAY_SAVE_STEP = 1
-    TRAINING_EPOCHS = 50
+    TRAINING_EPOCHS = 1000
     BATCH_SIZE = 2048
 
     def do_train():
@@ -187,7 +217,7 @@ with tf.Session() as sess:
             end = min(start + BATCH_SIZE, train_data_len)
             batch_x = train_x_data[start:end]
             batch_y = train_y_data[start:end]
-            data = {X: batch_x, Y: batch_y, dropout_rate: 0.7}
+            data = {X: batch_x, Y: batch_y, dropout_rate: 0.5}
             sess.run(train, feed_dict=data)
             avg_cost += sess.run(cost, feed_dict=data) * len(batch_x) / train_data_len
 
