@@ -277,5 +277,5 @@ with tf.Session() as sess:
         pred = sess.run((tf.argmax(model_with_softmax, 1)), feed_dict = {X: batch_x, dropout_rate: 1.0})
         real_pred_y = np.concatenate([real_pred_y, pred])
 
-    real_pred_y.astype(np.int32)
+    real_pred_y = real_pred_y.astype(int)
     io_data.save_result(real_pred_y)
